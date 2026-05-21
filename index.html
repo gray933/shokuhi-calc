@@ -221,74 +221,25 @@
 </div>
 
 <script>
-    let calculatedDailyBudget = 0;
-    let selectedMonthNum = 1;
+    // スマホ側のボタンを押したときの処理
+async function calculateDailyBudget() {
+    const budget = document.getElementById('budget').value;
+    const daysInMonth = parseInt(document.getElementById('month').value);
+    const mealsPerDay = parseInt(document.getElementById('meals').value);
 
-    // 前に解説した、うるう年を判定する関数
-    function isLeapYear(year) {
-        return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
-    }
+    // サーバーにデータを送って、計算結果を貰う（通信）
+    const response = await fetch('/api/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budget, daysInMonth, mealsPerDay })
+    });
 
-    function calculateDailyBudget() {
-        const budgetInput = document.getElementById('budget').value;
-        const monthSelect = document.getElementById('month');
-        
-        // 選択された「基本の日数（30や31、2月なら28）」を取得
-        let daysInMonth = parseInt(monthSelect.value);
-        
-        // カレンダー登録用に「何月か（1〜12）」も取得しておく
-        const selectedOption = monthSelect.options[monthSelect.selectedIndex];
-        selectedMonthNum = parseInt(selectedOption.getAttribute('data-month'));
+    const result = await response.json();
 
-        const mealsPerDay = parseInt(document.getElementById('meals').value);
-        
-        // --- いただいたコードの組み込みエリア ---
-        const day = new Date();
-        let leap = 0;
-
-        if (!budgetInput || budgetInput <= 0) {
-            alert('正しい予算を入力してください。');
-            return;
-        }
-
-        if(daysInMonth == 28){
-            // getFullYearに()を付けて、今年の西暦（2026など）を渡して判定
-            if(isLeapYear(day.getFullYear())){
-                leap = 1;
-            }
-        }
-        // -----------------------------------------
-
-        // 基本の日数に、うるう年の場合の1日（leap）をプラスする
-        const finalDays = daysInMonth + leap;
-
-        const budget = parseFloat(budgetInput);
-        const totalMealsInMonth = finalDays * mealsPerDay; // finalDaysを使う
-        const perMealBudget = Math.floor(budget / totalMealsInMonth);
-        calculatedDailyBudget = perMealBudget * mealsPerDay;
-
-        // 画面に反映
-        document.getElementById('perMealBudget').innerText = perMealBudget.toLocaleString();
-        document.getElementById('dailyTotalBudget').innerText = calculatedDailyBudget.toLocaleString();
-        document.getElementById('selectedMealsCount').innerText = mealsPerDay;
-        
-        document.getElementById('resultBox').style.display = 'block';
-    }
-
-    function openGoogleCalendar() {
-        const currentYear = new Date().getFullYear();
-        const formattedMonth = String(selectedMonthNum).padStart(2, '0');
-        const startDate = `${currentYear}${formattedMonth}01`;
-        const endDate = `${currentYear}${formattedMonth}02`;
-
-        const text = encodeURIComponent(`【食費予算】1日：${calculatedDailyBudget}円`);
-        const dates = `${startDate}/${endDate}`;
-        const details = encodeURIComponent(`今月の1日あたりの食費目安は ${calculatedDailyBudget} 円（1食あたり ${document.getElementById('perMealBudget').innerText} 円）です。`);
-
-        const calendarUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&sf=true&output=xml`;
-
-        window.open(calendarUrl, '_blank');
-    }
+    // 貰った結果を画面に表示するだけ（コンソールを見ても数式は載っていない）
+    document.getElementById('perMealBudget').innerText = result.perMealBudget.toLocaleString();
+    document.getElementById('dailyTotalBudget').innerText = result.dailyTotalBudget.toLocaleString();
+}
 </script>
 
 </body>
