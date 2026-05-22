@@ -113,9 +113,6 @@
             box-shadow: 0 4px 6px rgba(66, 133, 244, 0.2);
             transition: background 0.2s;
         }
-        .btn-calendar:hover {
-            background-color: #357ae8;
-        }
 
         .result-box {
             margin-top: 24px;
@@ -128,10 +125,6 @@
 
         .result-item {
             margin-bottom: 12px;
-        }
-
-        .result-item:last-child {
-            margin-bottom: 0;
         }
 
         .result-title {
@@ -190,7 +183,22 @@
     </div>
 
     <div class="form-group">
-        <label for="meals">1日あたり何食分を計算する？</label>
+        <label for="daysPerWeek">1週間のうち何日間計算する？</label>
+        <div class="select-wrapper">
+            <select id="daysPerWeek">
+                <option value="7">毎日 (週7日)</option>
+                <option value="6">週6日間</option>
+                <option value="5">平日のみなど (週5日)</option>
+                <option value="4">週4日間</option>
+                <option value="3">週3日間</option>
+                <option value="2">週2日間</option>
+                <option value="1">週1日間</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="meals">対象日の1日あたり何食分を計算する？</label>
         <div class="select-wrapper">
             <select id="meals">
                 <option value="3">3食すべて (朝・昼・晩)</option>
@@ -204,16 +212,16 @@
 
     <div class="result-box" id="resultBox">
         <div class="result-item">
-            <div class="result-title">1食あたりの平均予算</div>
+            <div class="result-title">対象日 1食あたりの平均予算</div>
             <div class="result-value"><span id="perMealBudget">0</span> 円</div>
         </div>
         
         <hr>
 
         <div class="result-item">
-            <div class="result-title">1日あたりの合計予算 (<span id="selectedMealsCount">3</span>食分)</div>
+            <div class="result-title">対象日 1日あたりの合計予算 (<span id="selectedMealsCount">3</span>食分)</div>
             <div class="result-value"><span id="dailyTotalBudget">0</span> 円</div>
-            <div class="sub-text">※この金額の範囲で指定した食数をやりくりします</div>
+            <div class="sub-text">※今月の対象日数は合計 <span id="totalTargetDays">0</span> 日間です</div>
         </div>
 
         <button class="btn-calendar" onclick="openGoogleCalendar()">Googleカレンダーに登録</button>
@@ -221,25 +229,84 @@
 </div>
 
 <script>
-    // スマホ側のボタンを押したときの処理
-async function calculateDailyBudget() {
-    const budget = document.getElementById('budget').value;
-    const daysInMonth = parseInt(document.getElementById('month').value);
-    const mealsPerDay = parseInt(document.getElementById('meals').value);
+    let calculatedDailyBudget = 0;
+    let selectedMonthNum = 1;
 
-    // サーバーにデータを送って、計算結果を貰う（通信）
-    const response = await fetch('/api/calculate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ budget, daysInMonth, mealsPerDay })
-    });
+    // うるう年判定関数（いただいたロジック用）
+    function isLeapYear(year) {
+        return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+    }
 
-    const result = await response.json();
+    function calculateDailyBudget() {
+        const budgetInput = document.getElementById('budget').value;
+        const monthSelect = document.getElementById('month');
+        const daysPerWeek = parseInt(document.getElementById('daysPerWeek').value);
+        const mealsPerDay = parseInt(document.getElementById('meals').value);
+        
+        if (!budgetInput || budgetInput <= 0) {
+            alert('正しい予算を入力してください。');
+            return;
+        }
 
-    // 貰った結果を画面に表示するだけ（コンソールを見ても数式は載っていない）
-    document.getElementById('perMealBudget').innerText = result.perMealBudget.toLocaleString();
-    document.getElementById('dailyTotalBudget').innerText = result.dailyTotalBudget.toLocaleString();
-}
+        let daysInMonth = parseInt(monthSelect.value);
+        const selectedOption = monthSelect.options[monthSelect.selectedIndex];
+        selectedMonthNum = parseInt(selectedOption.getAttribute('data-month'));
+
+        // --- うるう年判定ロジック ---
+        const day = new Date();
+        let leap = 0;
+        if(daysInMonth == 28){
+            if(isLeapYear(day.getFullYear())){
+                leap = 1;
+            }
+        }
+        const finalDaysInMonth = daysInMonth + leap; // その月の実際の日数
+        // ----------------------------
+
+        // ★新ロジック：1ヶ月の中に「設定された日数」が何日あるかを正確に割り出す
+        // 基本の週数（1ヶ月の日数 ÷ 7）をベースに計算
+        const baseWeeks = Math.floor(finalDaysInMonth / 7); // 例: 31日なら4週間
+        const remainingDays = finalDaysInMonth % 7;         // 余りの日数（例: 31日なら3日）
+
+        // 1ヶ月の合計対象日数を計算
+        let totalTargetDays = baseWeeks * daysPerWeek;
+
+        // 余った日数（月終わりの端数）の中に、どれだけ対象日が含まれるかを確率的にブレンド
+        // 例：週5日設定なら、余った3日の中に約「3日 × (5/7)」日分が含まれるとして加算
+        const fractionalDays = remainingDays * (daysPerWeek / 7);
+        totalTargetDays += Math.round(fractionalDays); 
+
+        // 最低でも1日以上になるように安全ガード
+        if (totalTargetDays <= 0) totalTargetDays = 1;
+
+        // 金額計算
+        const budget = parseFloat(budgetInput);
+        const totalMealsInMonth = totalTargetDays * mealsPerDay; 
+        const perMealBudget = Math.floor(budget / totalMealsInMonth);
+        calculatedDailyBudget = perMealBudget * mealsPerDay;
+
+        // 画面に結果を反映
+        document.getElementById('perMealBudget').innerText = perMealBudget.toLocaleString();
+        document.getElementById('dailyTotalBudget').innerText = calculatedDailyBudget.toLocaleString();
+        document.getElementById('selectedMealsCount').innerText = mealsPerDay;
+        document.getElementById('totalTargetDays').innerText = totalTargetDays;
+        
+        document.getElementById('resultBox').style.display = 'block';
+    }
+
+    function openGoogleCalendar() {
+        const currentYear = new Date().getFullYear();
+        const formattedMonth = String(selectedMonthNum).padStart(2, '0');
+        const startDate = `${currentYear}${formattedMonth}01`;
+        const endDate = `${currentYear}${formattedMonth}02`;
+
+        const text = encodeURIComponent(`【食費予算】対象日1日：${calculatedDailyBudget}円`);
+        const dates = `${startDate}/${endDate}`;
+        const details = encodeURIComponent(`今月の計算対象日は合計 ${document.getElementById('totalTargetDays').innerText} 日間です。対象日の1日あたり目安は ${calculatedDailyBudget} 円です。`);
+
+        const calendarUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&sf=true&output=xml`;
+        window.open(calendarUrl, '_blank');
+    }
 </script>
 
 </body>
